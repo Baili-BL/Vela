@@ -323,6 +323,7 @@ export class NativeRenderer implements IChartRenderer {
     private resizeAbove: PaneNode | null = null; // pane just above the dragged separator
     private resizeBelow: PaneNode | null = null; // pane just below it
     private resizeSplitStart: PaneSplit | null = null; // the two panes' shared span when the drag began
+    private resizeStartAboveWeight = 0; // the upper pane's weight when the drag began
     /** The user drawings take part in pointer input (the runtime `drawingsInteractive` feature). */
     private drawingsInteractive = true;
     private hoverSeparatorY: number | null = null; // pixel y of the separator under the cursor (drives its hover highlight)
@@ -1507,7 +1508,7 @@ export class NativeRenderer implements IChartRenderer {
         this.chrome.mount(this.chromeCanvas);
         this.crosshairLayer.mount(this.cursorCanvas);
         this.coords.setViewport(defaultViewport());
-        this.scene.ensurePane(PRICE_PANE_ID, 'price', 0, 3);
+        this.scene.ensurePane(PRICE_PANE_ID, 'price', 0);
 
         this.scheduler = new Scheduler((level) => this.renderFrame(level));
         this.animator = new Animator((dt) => this.animTick(dt));
@@ -1521,7 +1522,7 @@ export class NativeRenderer implements IChartRenderer {
             onClick: (x, y) => {
                 if (this.handleMarkClick(x, y)) return; // a lane glyph takes the click whole
                 this.userDrawings?.deselect(); // a click on the empty plot ends a (multi-)selection
-                this.handleClick(x);
+                this.handleClick(x, y);
             },
             onAxisLongPress: (axis, x, y) => {
                 for (const cb of this.axisLongPressCbs) cb({ axis, x, y });
@@ -1535,6 +1536,7 @@ export class NativeRenderer implements IChartRenderer {
             paneSeparatorAt: (y) => this.paneSeparatorAt(y),
             beginPaneResize: (y) => this.beginPaneResize(y),
             paneResizeBy: (dy) => this.paneResizeBy(dy),
+            endPaneResize: () => this.endPaneResize(),
             resetPaneSize: (y) => this.resetPaneSize(y),
             resetView: () => this.resetView(),
             // User drawings claim a gesture before pan when armed / over a drawing.
@@ -2047,7 +2049,7 @@ export class NativeRenderer implements IChartRenderer {
 
     // ── panes ──
     ensurePane(pane: Pane): void {
-        this.scene.ensurePane(pane.id, pane.kind, pane.order, pane.heightWeight ?? (pane.kind === 'price' ? 3 : 1));
+        this.scene.ensurePane(pane.id, pane.kind, pane.order, pane.heightWeight);
         this.layoutPanes();
         // A new pane changes the count, so the lone price pane's maximize button appears.
         this.paneControls?.refresh();
@@ -2101,6 +2103,17 @@ export class NativeRenderer implements IChartRenderer {
         this.layoutPanes();
         this.paneControls?.refresh();
         this.scheduler.invalidate(InvalidateLevel.Full);
+    }
+
+    setPaneHeightWeight(paneId: string, weight: number): void {
+        const pane = this.scene.panes.get(paneId);
+        if (!pane || !(weight > 0) || pane.heightWeight === weight) return;
+        pane.heightWeight = weight;
+        this.afterPaneLayoutChange();
+    }
+
+    paneHeightWeight(paneId: string): number | null {
+        return this.scene.panes.get(paneId)?.heightWeight ?? null;
     }
 
     onPaneAction(cb: (a: PaneAction) => void): Unsubscribe {
@@ -2696,7 +2709,7 @@ export class NativeRenderer implements IChartRenderer {
             this.setMarkHover(null);
             this.scheduler.invalidate(InvalidateLevel.Cursor);
             this.hoverLogical = null; // off the plot ⇒ the readout falls back to the latest bar
-            const empty: CrosshairEvent = { time: null, price: null, paneKind: null, values: new Map(), ohlc: null };
+            const empty: CrosshairEvent = { time: null, price: null, paneKind: null, paneId: null, values: new Map(), ohlc: null };
             for (const cb of this.crosshairCbs) cb(empty);
             return;
         }
@@ -2736,15 +2749,24 @@ export class NativeRenderer implements IChartRenderer {
             ? { time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume }
             : null;
         this.hoverLogical = onBar ? logical : null;
-        const event: CrosshairEvent = { time, price, paneKind: inData && pane ? pane.kind : null, values, ohlc };
+        const onPane = inData && pane ? pane : null;
+        const event: CrosshairEvent = { time, price, paneKind: onPane?.kind ?? null, paneId: onPane?.id ?? null, values, ohlc };
         for (const cb of this.crosshairCbs) cb(event);
     }
 
-    private handleClick(x: number): void {
+    private handleClick(x: number, y: number): void {
         if (this.coords.barCount === 0) return;
         const logical = Math.round(this.coords.xToLogical(x));
         const onBar = logical >= 0 && logical < this.coords.barCount;
-        for (const cb of this.clickCbs) cb({ time: onBar ? this.coords.logicalToTime(logical) : null, price: null });
+        const inData = x >= 0 && y >= 0 && x <= this.coords.width && y <= this.coords.height;
+        const pane = inData ? this.paneNodeAtY(y) : null;
+        const event: ClickEvent = {
+            time: onBar ? this.coords.logicalToTime(logical) : null,
+            price: pane ? this.coords.yToPrice(y, pane.scale, pane.bounds) : null,
+            paneKind: pane?.kind ?? null,
+            paneId: pane?.id ?? null,
+        };
+        for (const cb of this.clickCbs) cb(event);
     }
 
     /**
@@ -3022,6 +3044,7 @@ export class NativeRenderer implements IChartRenderer {
         const below = panes[i]!;
         this.resizeAbove = above;
         this.resizeBelow = below;
+        this.resizeStartAboveWeight = above.heightWeight;
         this.resizeSplitStart = {
             combinedTop: above.bounds.top,
             combinedHeight: above.bounds.height + below.bounds.height,
@@ -3044,6 +3067,17 @@ export class NativeRenderer implements IChartRenderer {
         this.scheduler.invalidate(InvalidateLevel.Full);
     }
 
+    /** Release the separator: report the resize once, at the end of the drag, if it changed anything. */
+    private endPaneResize(): void {
+        const above = this.resizeAbove;
+        const below = this.resizeBelow;
+        const startAbove = this.resizeStartAboveWeight;
+        this.resizeAbove = null;
+        this.resizeBelow = null;
+        this.resizeSplitStart = null;
+        if (above && below && above.heightWeight !== startAbove) this.emitPaneAction({ type: 'resize', paneIds: [above.id, below.id] });
+    }
+
     /** Double-click a separator → split the two adjacent panes evenly (each gets half of
      *  their combined weight). A simple, predictable reset that leaves siblings untouched. */
     private resetPaneSize(y: number): void {
@@ -3057,6 +3091,7 @@ export class NativeRenderer implements IChartRenderer {
         below.heightWeight = half;
         this.layoutPanes();
         this.scheduler.invalidate(InvalidateLevel.Full);
+        this.emitPaneAction({ type: 'resize', paneIds: [above.id, below.id] });
     }
 
     // ── keyboard navigation / accessibility (item 11) ──

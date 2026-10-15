@@ -250,7 +250,7 @@ registerWidgetAction({
         // ctx.stateChanged() — persistable third-party state changed (debounced save)
         // ctx.host  — mount host for kit components (Dialog/Menu/Tooltip)
         // ctx.toast(message, kind?) — the widget's feedback pill
-        // ctx.pointer (context:* only) — where the right-click landed: { price, time, paneKind }
+        // ctx.pointer (context:* only) — where the right-click landed: { price, time, paneKind, paneId }
     },
 });
 ```
@@ -302,11 +302,16 @@ pointer, which the right-click also makes active):
   indicator value on a study pane. `null` off the plot.
 - `time` — the open time of the bar under the pointer; `null` off the bars.
 - `paneKind` — `'price'` or `'study'`; `null` off the plot.
+- `paneId` — the pane's id, as `ctx.chart.panes.list()` reports it; `null` off the plot.
+
+In a workspace, the right-clicked cell is the active one by the time `when` runs, so
+`ctx.activeCellId` names the chart and `ctx.chart` is that chart.
 
 `ctx.pointer` is captured when the menu opens, so `run` sees the right-clicked spot even
 though the mouse moved through the menu to pick the row. The axis menus get what the
-crosshair reports over the axis: `price` and `paneKind` are `null` there, while `time`
-still names the bar column under the pointer (on the time axis, the bar above the click).
+crosshair reports over the axis: `price`, `paneKind` and `paneId` are `null` there, while
+`time` still names the bar column under the pointer (on the time axis, the bar above the
+click).
 Every other context (topbar actions, attachments, panels) has no `pointer`.
 
 ```ts
