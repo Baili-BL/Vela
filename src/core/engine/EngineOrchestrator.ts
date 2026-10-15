@@ -2447,8 +2447,9 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         const paneId = this.routePane(id, model, record.options ?? {});
         this.placeModel(model, id, paneId);
         record.model = model; // keeps pane routing + remove-time pane cleanup consistent
-        this.ensurePaneFor(paneId);
+        const paneCreated = this.ensurePaneFor(paneId);
         record.renderHandle = this.renderer.mountIndicator(model);
+        if (paneCreated) this.events.emit('pane:changed', undefined);
         record.pendingStructural = true; // the first computed model remounts over the placeholder
         if (record.hidden) {
             this.renderer.setIndicatorVisible?.(record.renderHandle, false);
@@ -2473,8 +2474,9 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         const paneId = this.routePane(id, model, record.options ?? {});
         this.placeModel(model, id, paneId);
         record.model = model;
-        this.ensurePaneFor(paneId);
+        const paneCreated = this.ensurePaneFor(paneId);
         record.renderHandle = this.renderer.mountIndicator(model);
+        if (paneCreated) this.events.emit('pane:changed', undefined);
         record.pendingStructural = true; // the first emit after show remounts over this row
         this.renderer.setIndicatorVisible?.(record.renderHandle, false);
         this.announce(record, this.handles.get(id));
@@ -2486,13 +2488,18 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         if (record.renderHandle && !record.hidden) this.renderer.setIndicatorStatus?.(record.renderHandle, loading ? 'loading' : 'idle');
     }
 
-    private ensurePaneFor(paneId: string): void {
-        if (!this.paneOrder.includes(paneId)) this.paneOrder.push(paneId);
+    /** Make sure the renderer has the pane; true when it is new to the layout (the caller
+     *  emits `pane:changed` once the indicator's model sits on it, so `list()` shows it). */
+    private ensurePaneFor(paneId: string): boolean {
+        const created = !this.paneOrder.includes(paneId);
+        if (created) this.paneOrder.push(paneId);
+        // No heightWeight: the renderer keeps the weight an existing pane already has.
         this.renderer.ensurePane({
             id: paneId,
             kind: paneId === 'price' ? 'price' : 'study',
             order: this.paneOrder.indexOf(paneId),
         });
+        return created;
     }
 
     /** True when any (still-registered) indicator sits on the given pane. */
@@ -2534,12 +2541,14 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         for (const paneId of this.paneOrder) {
             // The price pane always shows; a study pane only while it holds indicators.
             if (paneId !== 'price' && !byPane.has(paneId)) continue;
+            const heightWeight = this.renderer.paneHeightWeight?.(paneId) ?? null;
             panes.push({
                 id: paneId,
                 kind: paneId === 'price' ? 'price' : 'study',
                 order: panes.length,
                 collapsed: this.collapsedPanes.has(paneId),
                 maximized: this.maximizedPaneId === paneId,
+                ...(heightWeight !== null ? { heightWeight } : {}),
                 indicators: byPane.get(paneId) ?? [],
             });
         }
@@ -2574,6 +2583,23 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
     maximizePane(paneId: string | null): void {
         this.maximizedPaneId = paneId;
         this.renderer.setPaneMaximized?.(paneId);
+        this.events.emit('pane:changed', undefined);
+    }
+
+    setPaneHeightWeight(paneId: string, weight: number): void {
+        if (!this.renderer.setPaneHeightWeight) {
+            console.warn('[vela] the active renderer does not support pane sizing — chart.panes.setHeightWeight ignored.');
+            return;
+        }
+        if (typeof weight !== 'number' || !Number.isFinite(weight) || weight <= 0) {
+            console.warn(`[vela] chart.panes.setHeightWeight: weight must be a positive number (got ${String(weight)}).`);
+            return;
+        }
+        if (!this.existingPaneIds().includes(paneId)) {
+            console.warn(`[vela] chart.panes.setHeightWeight: no pane "${paneId}".`);
+            return;
+        }
+        this.renderer.setPaneHeightWeight(paneId, weight);
         this.events.emit('pane:changed', undefined);
     }
 
@@ -2694,6 +2720,10 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
                 this.maximizedPaneId = a.maximized ? a.paneId : null;
                 this.events.emit('pane:changed', undefined);
                 break;
+            case 'resize':
+                // The renderer holds the weights; `list()` reads them back.
+                this.events.emit('pane:changed', undefined);
+                break;
         }
     }
 
@@ -2747,15 +2777,17 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
             const paneId = this.routePane(id, model, record.options ?? {});
             this.placeModel(model, id, paneId);
             record.model = model;
-            this.ensurePaneFor(paneId);
+            const paneCreated = this.ensurePaneFor(paneId);
             record.renderHandle = this.renderer.mountIndicator(model);
             record.pendingStructural = false;
+            if (paneCreated) this.events.emit('pane:changed', undefined);
             this.announce(record, handle);
             return true;
         }
 
         let paneId = record.model?.paneId ?? 'price';
         const prevOwnScale = record.model?.ownScale === true;
+        let rerouted = false;
         if (record.loading && !record.paneLocked) {
             // First COMPUTED model after the placeholder. The placeholder's pane came from
             // the prepare-time overlay guess — if the real model routes differently, move
@@ -2772,6 +2804,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
                 this.ensurePaneFor(routed);
                 record.pendingStructural = true;
                 paneId = routed;
+                rerouted = true;
             }
         }
         this.placeModel(model, id, paneId);
@@ -2786,6 +2819,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         } else {
             this.renderer.updateIndicator(record.renderHandle, modelToValuePatch(model));
         }
+        if (rerouted) this.events.emit('pane:changed', undefined);
         if (record.loading) this.setLoading(record, false);
         this.announce(record, handle);
         return true;

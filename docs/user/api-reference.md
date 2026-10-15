@@ -256,7 +256,7 @@ Subscribe with `chart.on(event, handler)`; every subscription returns an unsubsc
 | `indicator:inputs` | `{ id }` | An indicator's input or prop values changed — the settings dialog, `setInput(s)`, `setProp(s)`. What state persistence listens to. |
 | `indicator:visibility` | `{ id, visible }` | An indicator was shown or hidden — the legend eye, `handle.setVisible`, or an object tree. |
 | `indicator:moved` | `{ id, paneId }` | An indicator was moved or merged into another pane — `handle.moveTo`, `chart.panes.moveIndicator`, or the legend's **Move to** menu. |
-| `pane:changed` | — | The pane layout changed: the order, a collapse or maximize (from `chart.panes` or the in-chart buttons), an indicator moving between panes, or a pane removed with its last indicator. Re-read `chart.panes.list()`. |
+| `pane:changed` | — | The pane layout changed: a pane created with its indicator or removed with its last one, the order, a collapse or maximize, the pane heights (`chart.panes.setHeightWeight`, or the user releasing a pane separator), or an indicator moving between panes — from `chart.panes` or the in-chart controls alike. Re-read `chart.panes.list()`. |
 | `pane:moved` | `{ paneId, dir }` | A study pane moved one slot `'up'` or `'down'`. Fires alongside `pane:changed`, with enough detail to undo it. |
 | `script:run` | the [`ScriptRun`](#capturing-what-a-script-computes) | A script computed — the first pass over the history, a live tick, a new bar, an input edit, a viewport move, a market switch. Carries the run itself (title, cause, the plots/variables/broker state at the computed bar), so a listener reads it instead of resolving a handle and pulling a snapshot. Forming-bar (`'tick'`) runs are throttled to ~1/s; every other cause fires unconditionally. Never fires for native indicators — they run no script. |
 | `context:changed` | `{ id }` | An indicator's execution context advanced (run finished; throttled to ~1/s while streaming). Re-pull `handle.context()` if you consume it. Fires only for context-capable engines. **Prefer `script:run`**, which delivers the data rather than a signal to go fetch it. |
@@ -292,8 +292,8 @@ chart is never left half-changed.
 | `getConfig()` | Snapshot the renderer's full cosmetics as a serializable, versioned JSON document (or `null`). |
 | `applyConfig(config)` | Apply a full or partial config document from `getConfig()`; malformed/unknown fields are ignored. |
 | `onConfigChanged(cb)` | Subscribe to cosmetic-config changes — the in-chart settings dialog commits through `applyConfig`, so this is how host chrome mirroring a config value (a time-zone display, a saved template) learns about in-chart edits. Re-pull `get(…)`/`getConfig()` in the callback. Returns an unsubscribe fn; silent no-op unsubscribe on a renderer without a rich config. |
-| `onCrosshairMove(cb)` | Subscribe to crosshair movement — `time`/`price` under the cursor, per-series values, and the hovered bar's OHLC (null fields when the cursor leaves the chart). `price` is the value on the scale of the pane under the cursor — a price on the price pane, an indicator value on a study pane — and `paneKind` (`'price'`, `'study'` or `null`) tells which. Returns an unsubscribe fn. The public seam for host status lines and data windows. |
-| `onClick(cb)` | Subscribe to clicks — and touch taps — on the plot (never the end of a pan): `{ time }` is the open time of the bar under it (`null` off the bars). On touch a tap moves no crosshair, so this is how an interaction learns which bar was chosen. A press on a drawing belongs to the drawing and reports no click: set [`drawingsInteractive`](./renderer-features.md) to `false` while picking. Returns an unsubscribe fn. |
+| `onCrosshairMove(cb)` | Subscribe to crosshair movement — `time`/`price` under the cursor, per-series values, and the hovered bar's OHLC (null fields when the cursor leaves the chart). `price` is the value on the scale of the pane under the cursor — a price on the price pane, an indicator value on a study pane — and `paneKind` (`'price'`, `'study'` or `null`) tells which; `paneId` names the pane, as [`chart.panes.list()`](#chartpanes--the-pane-control-surface) reports it (`null` off the plot). Returns an unsubscribe fn. The public seam for host status lines and data windows. |
+| `onClick(cb)` | Subscribe to clicks — and touch taps — on the plot (never the end of a pan): `{ time, price, paneKind, paneId }`. `time` is the open time of the bar under it (`null` off the bars); `price`, `paneKind` and `paneId` read the clicked pane the way `onCrosshairMove` does, so a click on a study pane names that pane and its value. On touch a tap moves no crosshair, so this is how an interaction learns which bar was chosen. A press on a drawing belongs to the drawing and reports no click: set [`drawingsInteractive`](./renderer-features.md) to `false` while picking. Returns an unsubscribe fn. |
 | `dataWindowReadout()` | The bar under the crosshair (or the latest bar when the cursor is off the plot) as a display-ready snapshot: `date`, `time`, an `ohlc` block, and one `groups` entry per indicator with a row per plot in its own color. Values are pre-formatted on their pane's scale. `null` on a renderer without the seam — see [renderer features](./renderer-features.md#data-window-readout). |
 | `setExternalCrosshair(time, price?)` | Show (or clear, with `null`) a **ghost crosshair** at a data-space position driven from OUTSIDE this chart — the multi-chart crosshair-sync seam ([the workspace](./workspace.md) drives it from the linked cells' pointers). A ghost never re-emits `onCrosshairMove` (one-way by contract — no echo loops). A [`crosshairOverride`](./renderer-features.md) applies to the ghost too — its line style and its `shadeRight` veil, which covers every bar in view when the ghost lies left of the window. Silent no-op on a renderer without the optional port seam; feature-detect with `supportsExternalCrosshair`. |
 | `set('dialogHost', el)` | Where the renderer mounts its MODAL dialogs (chart settings, indicator settings). Multi-chart shells pass their root element so dialogs center over the whole grid instead of clipping inside one cell — the workspace does this automatically for every cell. Runtime-only; never part of the config template. |
@@ -371,16 +371,18 @@ renderer); elsewhere they warn and no-op, and `list()` still reports the panes.
 | Member | Description |
 |---|---|
 | `supported` | Whether the active renderer supports pane management — use it to show or hide host UI. |
-| `list()` | The panes, top to bottom: `{ id, kind, order, collapsed, maximized, indicators }`, where `kind` is `'price'` or `'study'` and each indicator entry is `{ id, title, shorttitle?, ownScale }`. A study pane is listed while it holds an indicator. |
+| `list()` | The panes, top to bottom: `{ id, kind, order, collapsed, maximized, heightWeight?, indicators }`, where `kind` is `'price'` or `'study'` and each indicator entry is `{ id, title, shorttitle?, ownScale }`. `heightWeight` is the pane's share of the height (see `setHeightWeight`); a renderer that doesn't report pane sizes leaves it out. A study pane is listed while it holds an indicator. |
+| `setHeightWeight(paneId, weight)` | Size a pane. The panes share the plot height in proportion to their weights — by default 3 for the price pane and 1 for each study pane — so `setHeightWeight('price', 6)` next to two study panes gives the price pane three quarters of the height. The weight stays when other indicators join the pane, until the user drags a separator or you set it again; a collapsed pane applies it when expanded. `weight` must be a positive number. |
 | `move(paneId, dir)` | Move a study pane one slot `'up'` or `'down'`. The price pane stays on top. |
 | `collapse(paneId, collapsed?)` | Collapse a pane to a thin strip with its legend, or restore it (`false`). |
 | `maximize(paneId \| null)` | Let one pane fill the plot, hiding the others, or restore the split with `null`. |
 | `moveIndicator(id, target)` | Move or merge an indicator — the same as its handle's [`moveTo(target)`](#indicatorhandle). |
 | `remove(paneId)` | Remove a study pane and every indicator in it. The price pane can't be removed. |
 
-Every change fires `pane:changed`; follow it to keep host UI current, and `indicator:moved` for
-moves. A pane is created with its indicator, so read `list()` once the indicator's handle is
-`ready` (or on `indicator:added`) rather than right after `addIndicator` returns.
+Every change fires `pane:changed` — including a pane being created, and the user resizing panes
+with a separator — so follow it to keep host UI current or to save the heights; `indicator:moved`
+reports moves. A pane is created with its indicator, so read `list()` on that `pane:changed`, or
+once the indicator's handle is `ready`, rather than right after `addIndicator` returns.
 
 ```js
 const rsi = chart.addNativeIndicator('rsi');
@@ -388,6 +390,8 @@ rsi.on('ready', () => {
     const pane = chart.panes.list().find((p) => p.indicators.some((i) => i.id === rsi.id));
     chart.panes.collapse(pane.id); // a host "hide pane" toggle
 });
+
+chart.panes.setHeightWeight('price', 6); // a taller price pane
 
 chart.on('pane:changed', () => renderPaneToolbar(chart.panes.list()));
 ```

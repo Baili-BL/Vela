@@ -37,6 +37,8 @@ export interface InputControllerDeps {
     beginPaneResize(y: number): void;
     /** Resize the grabbed panes by the TOTAL pixel drag (down ⇒ grow the upper pane). */
     paneResizeBy(dyTotal: number): void;
+    /** The separator was released. */
+    endPaneResize?(): void;
     /** Double-click a sub-pane separator → restore the two adjacent panes to an even split. */
     resetPaneSize(y: number): void;
     /** Double-click the time axis → fit the view to content (same as keyboard `0`). */
@@ -640,6 +642,8 @@ export class InputController {
         const tapRelease = this.dragging && !this.moved && (!wasTouch || Math.hypot(x - this.startX, y - this.startY) <= TOUCH_TAP_SLOP);
         if (this.dragging && this.region === 'drawing') {
             this.deps.drawingsPointerUp?.(x, y, this.snapMode(e));
+        } else if (this.dragging && this.region === 'separator') {
+            this.deps.endPaneResize?.();
         } else if (tapRelease && this.region === 'data') {
             this.deps.onClick(x, y);
         } else if (this.dragging && this.region === 'data' && wasTouch) {

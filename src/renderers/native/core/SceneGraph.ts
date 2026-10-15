@@ -405,16 +405,19 @@ export class SceneGraph {
         return min;
     }
 
-    ensurePane(id: string, kind: PaneKind, order: number, heightWeight: number): PaneNode {
+    /** Create the pane, or update an existing one in place. Without `heightWeight` an existing
+     *  pane keeps its weight (a user resize survives other indicators mounting onto it) and a
+     *  new one gets the default: 3 for the price pane, 1 for a study pane. */
+    ensurePane(id: string, kind: PaneKind, order: number, heightWeight?: number): PaneNode {
         this.orderedCache = null; // order/membership may change
         const existing = this.panes.get(id);
         if (existing) {
             existing.order = order;
-            existing.heightWeight = heightWeight;
+            if (heightWeight !== undefined) existing.heightWeight = heightWeight;
             existing.kind = kind;
             return existing;
         }
-        const pane: PaneNode = { id, kind, order, heightWeight, bounds: { top: 0, height: 0 }, scale: { min: 0, max: 1 }, scaleTarget: { min: 0, max: 1 }, initialized: false, manualScale: null, collapsed: false, percentBaseline: 0 };
+        const pane: PaneNode = { id, kind, order, heightWeight: heightWeight ?? (kind === 'price' ? 3 : 1), bounds: { top: 0, height: 0 }, scale: { min: 0, max: 1 }, scaleTarget: { min: 0, max: 1 }, initialized: false, manualScale: null, collapsed: false, percentBaseline: 0 };
         this.panes.set(id, pane);
         return pane;
     }
