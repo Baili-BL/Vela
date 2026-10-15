@@ -697,6 +697,8 @@ export class InputController {
         this.cancelLongPress();
         if (!this.dragging) return;
         if (this.region === 'drawing' && !Number.isNaN(this.cursorX)) this.deps.drawingsPointerUp?.(this.cursorX, this.cursorY, this.snapMode(e));
+        // A cancelled separator drag keeps the sizes it reached, so it still reports them.
+        if (this.region === 'separator') this.deps.endPaneResize?.();
         if (this.region === 'crosshair' || e.pointerType === 'touch') this.deps.onPointerMove(null, null);
         this.endGesture(e);
     };
