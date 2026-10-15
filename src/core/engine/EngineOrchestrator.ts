@@ -3061,13 +3061,16 @@ function modelToValuePatch(model: IndicatorModel): ValuePatch {
             // ALWAYS stated, `[]` included: the renderer keeps colors a delta omits, and they are
             // index-aligned to the bars, so a stale set would slide onto whatever bar now holds its index.
             series.push({ seriesId: s.id, kind: 'bars', bars: s.bars, barColors: s.barColors ?? [] });
+            // An empty slot is a bar the series has no candle for (index alignment keeps it).
             for (const b of s.bars) {
+                if (!b) continue;
                 if (b.time < from) from = b.time;
                 if (b.time > to) to = b.time;
             }
         } else if (isLineLikeSeries(s)) {
             series.push({ seriesId: s.id, kind: 'points', points: s.points });
             for (const p of s.points) {
+                if (!p) continue;
                 if (p.time < from) from = p.time;
                 if (p.time > to) to = p.time;
             }

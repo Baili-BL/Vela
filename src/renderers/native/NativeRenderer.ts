@@ -4341,18 +4341,46 @@ export class NativeRenderer implements IChartRenderer {
  */
 function leadingPointsBefore(model: IndicatorModel, headTime: number): number | null {
     for (const s of model.series) {
-        const times: ReadonlyArray<{ time: number }> | null = s.kind === 'candle' || s.kind === 'bar' ? s.bars : isLineLikeSeries(s) ? s.points : null;
+        const times: ReadonlyArray<{ time: number } | undefined> | null = s.kind === 'candle' || s.kind === 'bar' ? s.bars : isLineLikeSeries(s) ? s.points : null;
         if (!times || times.length === 0) continue;
-        let lo = 0;
-        let hi = times.length; // lower bound: first index whose time is >= headTime
-        while (lo < hi) {
-            const mid = (lo + hi) >> 1;
-            if (times[mid]!.time < headTime) lo = mid + 1;
-            else hi = mid;
-        }
-        return lo;
+        const count = slotsBefore(times, headTime);
+        if (count !== null) return count;
     }
     return null;
+}
+
+/** How many of `times`' slots sit before `headTime`: a lower-bound search, or a scan once it
+ *  meets an empty slot (a bar the series has no value for), which carries no time. Null
+ *  when every slot is empty. */
+function slotsBefore(times: ReadonlyArray<{ time: number } | undefined>, headTime: number): number | null {
+    let lo = 0;
+    let hi = times.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        const t = times[mid]?.time;
+        if (t === undefined) return slotsBeforeScan(times, headTime);
+        if (t < headTime) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
+/**
+ * {@link slotsBefore} over empty slots: the index of the first entry at or after `headTime`
+ * when it IS the head bar, else one past the last entry before it (the empty slots in
+ * between count as at-or-after the head). Null when every slot is empty.
+ */
+function slotsBeforeScan(times: ReadonlyArray<{ time: number } | undefined>, headTime: number): number | null {
+    let lastBefore = -1;
+    let any = false;
+    for (let i = 0; i < times.length; i += 1) {
+        const t = times[i]?.time;
+        if (t === undefined) continue;
+        any = true;
+        if (t >= headTime) return t === headTime ? i : lastBefore + 1;
+        lastBefore = i;
+    }
+    return any ? times.length : null;
 }
 
 /** Apply a scene patch to a stored indicator model so the next frame reflects it. */

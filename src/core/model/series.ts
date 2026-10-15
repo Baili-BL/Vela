@@ -104,6 +104,9 @@ export interface LineLikeSeries extends SeriesBase {
 
 export interface CandleSeries extends SeriesBase {
     kind: 'candle' | 'bar';
+    /** One entry per bar the indicator ran over, index-aligned like `points`. A bar with no
+     *  candle is an empty slot (or an entry with `NaN` prices): it draws nothing, and the
+     *  candles after it stay on their own bars. Never compact the array to drop it. */
     bars: OHLCV[];
     style?: Partial<CandleStyle>;
     /** Per-bar plotcandle/plotbar colours, aligned to `bars` by index (null ≡ use defaults). */

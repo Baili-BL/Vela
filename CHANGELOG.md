@@ -36,6 +36,11 @@ All notable changes to Vela, newest first.
   adding an indicator that draws on an existing pane (a moving average on the price chart, or
   one merged into another indicator's pane), snapped the panes back to their default heights.
   Pane sizes now stay until you change them.
+- **Candle overlays with gaps keep updating.** An indicator drawing its own candles or bars
+  (Pine Script's `plotcandle()` and `plotbar()`, or a custom engine) with no candle on some
+  bars — Pine Script's `show_last`, for one — painted the first time, then failed on its next
+  update: a live tick, an input change, a replay step. Such an indicator now keeps updating and
+  leaves those bars empty, and a candle with any missing price is skipped the same way.
 
 ## [0.8.4]
 
