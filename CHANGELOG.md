@@ -48,6 +48,12 @@ All notable changes to Vela, newest first.
   bars — Pine Script's `show_last`, for one — painted the first time, then failed on its next
   update: a live tick, an input change, a replay step. Such an indicator now keeps updating and
   leaves those bars empty, and a candle with any missing price is skipped the same way.
+- **Plugin visuals clear the moment you switch markets.** Changing the symbol or timeframe on a
+  chart showing plugin-drawn data, such as a custom chart type or an indicator that paints its
+  own layer, could stack the old market's visuals in a single column at the right edge until
+  the new bars arrived, and data the old market was still loading could land on the new one
+  afterwards. The old market's visuals now disappear as soon as you switch, and nothing it was
+  still loading is drawn.
 
 ## [0.8.4]
 

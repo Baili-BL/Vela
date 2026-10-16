@@ -85,7 +85,10 @@ export interface NativeIndicator {
     suspend(): void;
     /** Shown again — resume + re-emit. */
     resume(): void;
-    /** Removed — full teardown (clear caches, stop timers). Only ever called after `start`. */
+    /** Removed, or replaced by a fresh instance (a market switch stops it as the switch
+     *  begins) — full teardown (clear caches, stop timers). Only ever called after `start`.
+     *  Pushes made inside `stop()` still land (a layer-backed native clears its channel
+     *  here); once it returns, the context drops every push and emit. */
     stop(): void;
 }
 
