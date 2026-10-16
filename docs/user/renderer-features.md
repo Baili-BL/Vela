@@ -142,10 +142,11 @@ follows a synced crosshair's veil too.
 > front of price** or **Bring in front of** *the indicator directly in front of it*, and **Send
 > behind price** or **Send behind** *the indicator directly behind it*. Only the steps that have
 > a layer to pass show. One step moves it just past that layer and leaves every other layer where
-> it was. The new order is part of the renderer config, so it is saved with the chart and
-> reported through `chart.renderer.onConfigChanged`. Indicators that paint on a canvas of their
-> own (volume, the volume profile, plugin renderer layers) stack as a whole canvas instead and get
-> no entry.
+> it was. The steps follow the same order the object tree lists, so the two always agree. The new
+> order is part of the renderer config, so it is saved with the chart and reported through
+> `chart.renderer.onConfigChanged`. Volume and the volume profile take part in the order like any
+> other overlay, but paint on canvases of their own over the candles and indicators wherever they
+> sit in it.
 
 > **The drawing toolbar** is also in-chart UI, but it lives on its own facade — `chart.drawings`,
 > not `chart.renderer` — and is **shown by default**. It adds its own keyboard shortcuts

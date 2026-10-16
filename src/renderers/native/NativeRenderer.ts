@@ -81,7 +81,7 @@ import { BackdropRenderer } from './backdrop/BackdropRenderer';
 import { VolumeRenderer, VOLUME_PANE_FILL_FRAC } from './volume/VolumeRenderer';
 import { rendererLayers, foldBaseModulation, type RendererLayerArgs, type RendererLayerDefinition, type RendererLayerInstance, type BasePaintingModulation } from './layers';
 import { stackLayers } from './core/layerStacking';
-import { layerAbove, layerBelow, loweredZ, priceStack, raisedZ, type StackEntry } from './core/overlayStack';
+import { layerAbove, layerBelow, loweredZ, priceStack, raisedZ, untie, type StackEntry } from './core/overlayStack';
 import { applyAttributionMarkTheme, attributionMarkColor, createAttributionMark, createCustomMark } from './chrome/AttributionMark';
 import { rasterizeOverlay } from '../shared/dom-raster';
 import type { HostSettingsSection } from './chrome/SettingsDialog';
@@ -1682,8 +1682,8 @@ export class NativeRenderer implements IChartRenderer {
         this.inputsUI.setStackApi({
             above: (id) => layerAbove(this.overlayStack(), id),
             below: (id) => layerBelow(this.overlayStack(), id),
-            raise: (id) => this.restackOverlay(id, raisedZ(this.overlayStack(), id)),
-            lower: (id) => this.restackOverlay(id, loweredZ(this.overlayStack(), id)),
+            raise: (id) => this.restackOverlay(id, raisedZ),
+            lower: (id) => this.restackOverlay(id, loweredZ),
         });
 
         this.paneControls = new PaneControls(this.plot, theme, {
@@ -3807,34 +3807,28 @@ export class NativeRenderer implements IChartRenderer {
     }
 
     /**
-     * The price pane's layers back to front, as the legend restacks them: the indicators
-     * painted inside the data canvas plus the candles. The volume and volume-profile
-     * canvases and SDK layer canvases stack as whole canvases, so they are left out, as
-     * are rows the host owns (no legend).
+     * The price pane's layers back to front, as the legend restacks them: every indicator
+     * with a legend row, in paint order, plus the candles. The same layers and order the
+     * object tree lists (see `indicatorZOrder`).
      */
     private overlayStack(): StackEntry[] {
         const painted = this.scene
             .orderedIndicatorsForPane(PRICE_PANE_ID)
-            .filter((m) => m.legend !== false && !this.paintsOnOwnCanvas(m))
+            .filter((m) => m.legend !== false)
             .map((m) => ({ id: m.id, z: this.scene.zOf(m.id) }));
         return priceStack(painted, this.scene.candleZ);
     }
 
-    /** Apply a legend restacking step (no-op when there was nothing to step over). */
-    private restackOverlay(id: string, z: number | null): void {
+    /** Apply a legend restacking step: shared keys are spread apart first (the order stays),
+     *  so the step lands exactly one layer over. No-op when there is nothing to step over. */
+    private restackOverlay(id: string, step: (stack: StackEntry[], id: string) => number | null): void {
+        for (const fix of untie(this.overlayStack())) this.scene.setIndicatorZ(fix.id, fix.z);
+        const z = step(this.overlayStack(), id);
         if (z === null) return;
         this.scene.setIndicatorZ(id, z);
         this.scheduler.invalidate(InvalidateLevel.Full);
         // The stacking is part of the config: host chrome mirroring it (an object tree) follows.
         for (const cb of this.configChangedCbs) cb();
-    }
-
-    /** Whether a native indicator paints on a canvas of its own instead of the data canvas. */
-    private paintsOnOwnCanvas(model: IndicatorModel): boolean {
-        const type = model.native?.type;
-        if (!type) return false;
-        if (type === 'volume' || type === 'vpvr') return true;
-        return this.extLayers.some((l) => l.owner === model.id || (l.owner === null && l.def.id === type));
     }
 
     /** The pane a bespoke-layer native indicator (volume/vpvr) currently lives in (null = not mounted). */

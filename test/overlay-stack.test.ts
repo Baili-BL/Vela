@@ -2,7 +2,7 @@
 // in front of an overlay indicator, and the key that steps it in front of that layer while
 // every other layer keeps its own.
 import { describe, it, expect } from 'vitest';
-import { layerAbove, layerBelow, loweredZ, priceStack, raisedZ, type StackEntry } from '../src/renderers/native/core/overlayStack';
+import { layerAbove, layerBelow, loweredZ, priceStack, raisedZ, untie, type StackEntry } from '../src/renderers/native/core/overlayStack';
 
 /** The default mount order: each new indicator goes to the bottom, under the candles at 0. */
 const DEFAULT: StackEntry[] = [
@@ -16,6 +16,49 @@ describe('priceStack', () => {
         expect(priceStack(DEFAULT, 0).map((e) => e.id)).toEqual(['gaps', 'ema', 'sma', null]);
         expect(priceStack([{ id: 'a', z: -1 }, { id: 'b', z: 0 }, { id: 'c', z: 2 }], 0).map((e) => e.id)).toEqual(['a', null, 'b', 'c']);
         expect(priceStack([], 0)).toEqual([{ id: null, z: 0 }]);
+    });
+});
+
+describe('untie', () => {
+    it('is empty when every key is distinct', () => {
+        expect(untie(priceStack(DEFAULT, 0))).toEqual([]);
+    });
+
+    it('spreads a shared key up to the next one, keeping the order and the first key', () => {
+        const stack = priceStack([{ id: 'volume', z: -1 }, { id: 'bb', z: -1 }, { id: 'ce', z: -0.5 }], 0);
+        expect(untie(stack)).toEqual([{ id: 'bb', z: -0.75 }]);
+    });
+
+    it('never moves the candles, which lead a run on their key', () => {
+        const stack = priceStack([{ id: 'a', z: 0 }, { id: 'b', z: 0 }], 0);
+        expect(stack.map((e) => e.id)).toEqual([null, 'a', 'b']);
+        expect(untie(stack)).toEqual([
+            { id: 'a', z: 1 / 3 },
+            { id: 'b', z: 2 / 3 },
+        ]);
+    });
+});
+
+describe('a step over a shared key, untied first', () => {
+    /** Untie, then apply one step, the way the renderer does; returns the order back to front. */
+    function stepUntied(indicators: StackEntry[], id: string, dir: 'raise' | 'lower'): Array<string | null> {
+        const fixes = new Map(untie(priceStack(indicators, 0)).map((f) => [f.id, f.z]));
+        const untied = indicators.map((e) => ({ ...e, z: fixes.get(e.id!) ?? e.z }));
+        const stack = priceStack(untied, 0);
+        const z = dir === 'raise' ? raisedZ(stack, id) : loweredZ(stack, id);
+        return apply(untied, id, z);
+    }
+
+    // Volume and BB share -1 (Volume painting first), CE sits in front of both.
+    const SHARED: StackEntry[] = [{ id: 'volume', z: -1 }, { id: 'bb', z: -1 }, { id: 'ce', z: -0.5 }];
+
+    it('sends an indicator behind exactly the one behind it', () => {
+        expect(layerBelow(priceStack(SHARED, 0), 'ce')).toEqual({ indicator: 'bb' });
+        expect(stepUntied(SHARED, 'ce', 'lower')).toEqual(['volume', 'ce', 'bb', null]);
+    });
+
+    it('brings the back one of a pair in front of exactly the other', () => {
+        expect(stepUntied(SHARED, 'volume', 'raise')).toEqual(['bb', 'volume', 'ce', null]);
     });
 });
 
@@ -121,11 +164,6 @@ describe('raisedZ', () => {
         const z = raisedZ(stack, 'gaps')!;
         expect(z).toBeGreaterThan(-2);
         expect(z).toBeLessThan(-1);
-    });
-
-    it('takes the shared key when the next two layers share one, still in front of the candles', () => {
-        // The candles and an indicator both at 0: no room between them.
-        expect(raisedZ(priceStack([{ id: 'a', z: -1 }, { id: 'b', z: 0 }], 0), 'a')).toBe(0);
     });
 
     it('is null with nothing above', () => {
