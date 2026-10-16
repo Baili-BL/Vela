@@ -81,7 +81,7 @@ import { BackdropRenderer } from './backdrop/BackdropRenderer';
 import { VolumeRenderer, VOLUME_PANE_FILL_FRAC } from './volume/VolumeRenderer';
 import { rendererLayers, foldBaseModulation, type RendererLayerArgs, type RendererLayerDefinition, type RendererLayerInstance, type BasePaintingModulation } from './layers';
 import { stackLayers } from './core/layerStacking';
-import { layerAbove, priceStack, raisedZ, type StackEntry } from './core/overlayStack';
+import { layerAbove, layerBelow, loweredZ, priceStack, raisedZ, type StackEntry } from './core/overlayStack';
 import { applyAttributionMarkTheme, attributionMarkColor, createAttributionMark, createCustomMark } from './chrome/AttributionMark';
 import { rasterizeOverlay } from '../shared/dom-raster';
 import type { HostSettingsSection } from './chrome/SettingsDialog';
@@ -1681,14 +1681,9 @@ export class NativeRenderer implements IChartRenderer {
         });
         this.inputsUI.setStackApi({
             above: (id) => layerAbove(this.overlayStack(), id),
-            raise: (id) => {
-                const z = raisedZ(this.overlayStack(), id);
-                if (z === null) return;
-                this.scene.setIndicatorZ(id, z);
-                this.scheduler.invalidate(InvalidateLevel.Full);
-                // The stacking is part of the config: host chrome mirroring it (an object tree) follows.
-                for (const cb of this.configChangedCbs) cb();
-            },
+            below: (id) => layerBelow(this.overlayStack(), id),
+            raise: (id) => this.restackOverlay(id, raisedZ(this.overlayStack(), id)),
+            lower: (id) => this.restackOverlay(id, loweredZ(this.overlayStack(), id)),
         });
 
         this.paneControls = new PaneControls(this.plot, theme, {
@@ -3823,6 +3818,15 @@ export class NativeRenderer implements IChartRenderer {
             .filter((m) => m.legend !== false && !this.paintsOnOwnCanvas(m))
             .map((m) => ({ id: m.id, z: this.scene.zOf(m.id) }));
         return priceStack(painted, this.scene.candleZ);
+    }
+
+    /** Apply a legend restacking step (no-op when there was nothing to step over). */
+    private restackOverlay(id: string, z: number | null): void {
+        if (z === null) return;
+        this.scene.setIndicatorZ(id, z);
+        this.scheduler.invalidate(InvalidateLevel.Full);
+        // The stacking is part of the config: host chrome mirroring it (an object tree) follows.
+        for (const cb of this.configChangedCbs) cb();
     }
 
     /** Whether a native indicator paints on a canvas of its own instead of the data canvas. */

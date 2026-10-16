@@ -45,14 +45,21 @@ export interface LegendMoveApi {
     move(id: string, target: MoveTarget): void;
 }
 
+/** What paints next to an indicator in the price pane's stack: the candles (`'price'`),
+ *  another indicator (`{ indicator: id }`), or nothing to step over (`null` — the end of
+ *  the stack, or an indicator that doesn't stack with the candles). */
+export type LegendStackNeighbor = 'price' | { indicator: string } | null;
+
 /** Host hook that lets the legend restack an overlay indicator among the price pane's layers. */
 export interface LegendStackApi {
-    /** What paints directly in front of the indicator: the candles (`'price'`), another
-     *  indicator (`{ indicator: id }`), or nothing to step over (`null` — the top of the
-     *  stack, or an indicator that doesn't stack with the candles). */
-    above(id: string): 'price' | { indicator: string } | null;
+    /** What paints directly in front of the indicator. */
+    above(id: string): LegendStackNeighbor;
+    /** What paints directly behind it. */
+    below(id: string): LegendStackNeighbor;
     /** Move the indicator directly in front of what {@link above} reports. */
     raise(id: string): void;
+    /** Move the indicator directly behind what {@link below} reports. */
+    lower(id: string): void;
 }
 
 /** One plot's current value as shown beside the legend title (pre-formatted, plot-colored). */
@@ -129,6 +136,9 @@ const LEGEND_CTL_CSS =
     `border:none;line-height:0;padding:0;` +
     `width:${LEGEND_CTL_PX}px;height:${LEGEND_CTL_PX}px;border-radius:3px;box-sizing:border-box;flex:none;`;
 const LEGEND_ROW_MIN_H = LEGEND_CTL_PX + LEGEND_ROW_PAD_Y * 2;
+/** Menu ids of the one-step restacking entries (never numeric: the move menu's targets are). */
+const STACK_RAISE = 'stack:raise';
+const STACK_LOWER = 'stack:lower';
 const EYE_SVG = iconAt('eye', LEGEND_ICON_PX);
 const EYE_OFF_SVG = iconAt('eye-off', LEGEND_ICON_PX);
 const GEAR_SVG = iconAt('gear', LEGEND_ICON_PX);
@@ -509,15 +519,21 @@ export class InputsUI {
         this.moveTargets = items.map((it) => it.target);
         this.moveMenuId = id;
         const descriptors: MenuItemDescriptor[] = items.map((it, i) => ({ id: String(i), label: it.label }));
+        // Restacking within the pane rides along: it is where an overlay hidden behind the
+        // candles is looked for.
+        const stack = this.stackItems(id);
+        if (stack[0] && descriptors.length > 0) stack[0].separatorBefore = true;
+        descriptors.push(...stack);
         if (!this.moveMenu) {
             this.moveMenu = new Menu({
                 host: this.container,
                 items: descriptors,
                 placement: 'bottom-start',
                 onSelect: (itemId) => {
-                    const target = this.moveTargets[Number(itemId)];
                     const rowId = this.moveMenuId;
-                    if (target && rowId) api.move(rowId, target);
+                    if (!rowId || this.runStackItem(itemId, rowId)) return;
+                    const target = this.moveTargets[Number(itemId)];
+                    if (target) api.move(rowId, target);
                 },
             });
         } else {
@@ -546,8 +562,9 @@ export class InputsUI {
             label: 'Indicator values',
             checked: this.rowValuesShown(row),
         }];
-        const raise = this.raiseLabel(id);
-        if (raise) items.push({ id: 'raise', label: raise, separatorBefore: true });
+        const stack = this.stackItems(id);
+        if (stack[0]) stack[0].separatorBefore = true;
+        items.push(...stack);
         if (!this.rowMenu) {
             this.rowMenu = new Menu({
                 host: this.container,
@@ -557,11 +574,7 @@ export class InputsUI {
                 checkmarks: true,
                 onSelect: (itemId) => {
                     const rowId = this.rowMenuId;
-                    if (!rowId) return;
-                    if (itemId === 'raise') {
-                        this.stackApi?.raise(rowId);
-                        return;
-                    }
+                    if (!rowId || this.runStackItem(itemId, rowId)) return;
                     if (itemId !== 'values') return;
                     const target = this.rows.get(rowId);
                     if (!target) return;
@@ -579,13 +592,30 @@ export class InputsUI {
         this.rowMenu?.close();
     }
 
-    /** The context menu's step-forward label for a row, or null when there is nothing to step over. */
-    private raiseLabel(id: string): string | null {
-        const above = this.stackApi?.above(id) ?? null;
-        if (above === null) return null;
-        if (above === 'price') return 'Bring in front of price';
-        const title = this.rows.get(above.indicator)?.title;
-        return title ? `Bring in front of ${title}` : 'Bring in front of the indicator above';
+    /** A row's one-step restacking entries (forward, then back), for whichever neighbor exists. */
+    private stackItems(id: string): MenuItemDescriptor[] {
+        const api = this.stackApi;
+        if (!api) return [];
+        const items: MenuItemDescriptor[] = [];
+        const forward = this.stackLabel('Bring in front of', api.above(id), 'the indicator in front');
+        if (forward) items.push({ id: STACK_RAISE, label: forward });
+        const back = this.stackLabel('Send behind', api.below(id), 'the indicator behind');
+        if (back) items.push({ id: STACK_LOWER, label: back });
+        return items;
+    }
+
+    private stackLabel(verb: string, neighbor: LegendStackNeighbor, fallback: string): string | null {
+        if (neighbor === null) return null;
+        if (neighbor === 'price') return `${verb} price`;
+        return `${verb} ${this.rows.get(neighbor.indicator)?.title ?? fallback}`;
+    }
+
+    /** Run a restacking entry; false when `itemId` is not one. */
+    private runStackItem(itemId: string, rowId: string): boolean {
+        if (itemId === STACK_RAISE) this.stackApi?.raise(rowId);
+        else if (itemId === STACK_LOWER) this.stackApi?.lower(rowId);
+        else return false;
+        return true;
     }
 
     /** Move a legend row to another pane (indicator merged/moved), tidying an emptied container. */

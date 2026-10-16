@@ -1,6 +1,7 @@
-// The price pane's draw stack as the legend restacks it: the indicators painted inside the
-// data canvas, ordered by z, with the candles as one more entry at `candleZ`. Pure and
-// unit-tested; the renderer feeds it the scene's keys and applies the z it returns.
+// The price pane's draw stack as the legend restacks it, one step forward or back: the
+// indicators painted inside the data canvas, ordered by z, with the candles as one more
+// entry at `candleZ`. Pure and unit-tested; the renderer feeds it the scene's keys and
+// applies the z it returns.
 
 /** One layer of the stack: an indicator by id, or the candles (`id: null`). */
 export interface StackEntry {
@@ -43,4 +44,29 @@ export function raisedZ(stack: readonly StackEntry[], id: string): number | null
     if (!next) return above.z + 1;
     if (next.z === above.z) return above.z;
     return (above.z + next.z) / 2;
+}
+
+/** What paints directly behind `id`: the candles, another indicator, or nothing. */
+export function layerBelow(stack: readonly StackEntry[], id: string): 'price' | { indicator: string } | null {
+    const i = stack.findIndex((e) => e.id === id);
+    if (i <= 0) return null;
+    const below = stack[i - 1]!;
+    return below.id === null ? 'price' : { indicator: below.id };
+}
+
+/**
+ * The z that puts `id` directly behind the layer below it, in front of whatever comes
+ * before: halfway to the previous key, or one under the layer below at the bottom of
+ * the stack. Null when nothing is below. Every other layer keeps its key. Only two
+ * indicators can share a key with no room between them (the candles never do with what
+ * paints behind them): `id` then takes that key too.
+ */
+export function loweredZ(stack: readonly StackEntry[], id: string): number | null {
+    const i = stack.findIndex((e) => e.id === id);
+    if (i <= 0) return null;
+    const below = stack[i - 1]!;
+    const prev = stack[i - 2];
+    if (!prev) return below.z - 1;
+    if (prev.z === below.z) return below.z;
+    return (prev.z + below.z) / 2;
 }

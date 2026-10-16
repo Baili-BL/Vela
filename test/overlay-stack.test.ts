@@ -2,7 +2,7 @@
 // in front of an overlay indicator, and the key that steps it in front of that layer while
 // every other layer keeps its own.
 import { describe, it, expect } from 'vitest';
-import { layerAbove, priceStack, raisedZ, type StackEntry } from '../src/renderers/native/core/overlayStack';
+import { layerAbove, layerBelow, loweredZ, priceStack, raisedZ, type StackEntry } from '../src/renderers/native/core/overlayStack';
 
 /** The default mount order: each new indicator goes to the bottom, under the candles at 0. */
 const DEFAULT: StackEntry[] = [
@@ -34,6 +34,60 @@ describe('layerAbove', () => {
     it('has nothing above the top of the stack, nor for an indicator outside it', () => {
         expect(layerAbove(stack, 'front')).toBeNull();
         expect(layerAbove(stack, 'volume')).toBeNull();
+    });
+});
+
+/** Apply a step's key and read the new back-to-front order. */
+function apply(indicators: StackEntry[], id: string, z: number | null, candleZ = 0): Array<string | null> {
+    expect(z).not.toBeNull();
+    const next = indicators.map((e) => (e.id === id ? { ...e, z: z! } : e)).sort((a, b) => a.z - b.z);
+    return priceStack(next, candleZ).map((e) => e.id);
+}
+
+describe('layerBelow', () => {
+    const stack = priceStack([...DEFAULT, { id: 'front', z: 1 }], 0);
+
+    it('names the price for the bottom indicator in front of the candles', () => {
+        expect(layerBelow(stack, 'front')).toBe('price');
+    });
+
+    it('names the indicator directly behind', () => {
+        expect(layerBelow(stack, 'sma')).toEqual({ indicator: 'ema' });
+        expect(layerBelow(stack, 'ema')).toEqual({ indicator: 'gaps' });
+    });
+
+    it('has nothing behind the bottom of the stack, nor for an indicator outside it', () => {
+        expect(layerBelow(stack, 'gaps')).toBeNull();
+        expect(layerBelow(stack, 'volume')).toBeNull();
+    });
+});
+
+describe('loweredZ', () => {
+    const lower = (indicators: StackEntry[], id: string): Array<string | null> => apply(indicators, id, loweredZ(priceStack(indicators, 0), id));
+
+    it('sends an indicator behind the one directly behind it, and no further', () => {
+        expect(lower(DEFAULT, 'sma')).toEqual(['gaps', 'sma', 'ema', null]);
+    });
+
+    it('sends an indicator in front of the candles back behind the price', () => {
+        expect(lower([...DEFAULT, { id: 'front', z: 1 }], 'front')).toEqual(['gaps', 'ema', 'sma', 'front', null]);
+    });
+
+    it('sends the bottom indicator in front of the price behind it, at the bottom of the stack', () => {
+        expect(lower([{ id: 'a', z: 1 }, { id: 'b', z: 2 }], 'a')).toEqual(['a', null, 'b']);
+    });
+
+    it('is the inverse of a step forward', () => {
+        const stack = priceStack(DEFAULT, 0);
+        const up = apply(DEFAULT, 'gaps', raisedZ(stack, 'gaps'));
+        expect(up).toEqual(['ema', 'gaps', 'sma', null]);
+        const moved = DEFAULT.map((e) => (e.id === 'gaps' ? { ...e, z: raisedZ(stack, 'gaps')! } : e)).sort((a, b) => a.z - b.z);
+        expect(apply(moved, 'gaps', loweredZ(priceStack(moved, 0), 'gaps'))).toEqual(['gaps', 'ema', 'sma', null]);
+    });
+
+    it('is null with nothing below', () => {
+        expect(loweredZ(priceStack(DEFAULT, 0), 'gaps')).toBeNull();
+        expect(loweredZ(priceStack(DEFAULT, 0), 'missing')).toBeNull();
     });
 });
 

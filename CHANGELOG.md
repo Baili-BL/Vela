@@ -25,10 +25,11 @@ All notable changes to Vela, newest first.
   separator, and when a new indicator creates its pane, so a host can save the layout and keep
   its own pane controls in step without polling.
 - **Bring an overlay in front of the candles from its legend.** New indicators start behind the
-  candles, so a line or a candle overlay on the price chart could be hidden under them.
-  Right-click its legend row: **Bring in front of price** moves it in front of the candles, and
-  **Bring in front of** another indicator moves it one step forward, past the indicator directly
-  in front of it. Every other layer keeps its place, and the order is saved with the chart.
+  candles, so a line or a candle overlay on the price chart could be hidden under them. Its
+  legend row's **Move to** menu, and its right-click menu, now step it one layer at a time:
+  **Bring in front of price** or **Bring in front of** the indicator directly in front of it, and
+  **Send behind price** or **Send behind** the indicator directly behind it. Every other layer
+  keeps its place, and the order is saved with the chart.
 - **Clicks and the crosshair name the pane.** `onClick` now reports the pane that was clicked
   and the value under the click on that pane's scale, alongside the bar time, and
   `onCrosshairMove` reports the pane under the cursor. Both carry the pane's `paneId`, the same
