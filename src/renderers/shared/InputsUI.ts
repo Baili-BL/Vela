@@ -518,12 +518,12 @@ export class InputsUI {
         }
         this.moveTargets = items.map((it) => it.target);
         this.moveMenuId = id;
-        const descriptors: MenuItemDescriptor[] = items.map((it, i) => ({ id: String(i), label: it.label }));
-        // Restacking within the pane rides along: it is where an overlay hidden behind the
-        // candles is looked for.
+        // Restacking within the pane leads: it is where an overlay hidden behind the candles
+        // is looked for.
         const stack = this.stackItems(id);
-        if (stack[0] && descriptors.length > 0) stack[0].separatorBefore = true;
-        descriptors.push(...stack);
+        const moves: MenuItemDescriptor[] = items.map((it, i) => ({ id: String(i), label: it.label }));
+        if (moves[0] && stack.length > 0) moves[0].separatorBefore = true;
+        const descriptors = [...stack, ...moves];
         if (!this.moveMenu) {
             this.moveMenu = new Menu({
                 host: this.container,
@@ -549,22 +549,24 @@ export class InputsUI {
 
     // ── legend row context menu (right-click) ───────────────────────────────
 
-    /** Open the row's action menu at the pointer: the values toggle, and for an overlay
-     *  indicator with something painting directly in front of it, a step forward. */
+    /** Open the row's action menu at the pointer: an overlay indicator's restacking steps
+     *  first (where a layer is there to pass), then the values toggle. */
     private openRowMenu(id: string, x: number, y: number): void {
         this.closeRowMenu();
         this.closeMoveMenu();
         const row = this.rows.get(id);
         if (!row) return;
         this.rowMenuId = id;
-        const items: MenuItemDescriptor[] = [{
-            id: 'values',
-            label: 'Indicator values',
-            checked: this.rowValuesShown(row),
-        }];
         const stack = this.stackItems(id);
-        if (stack[0]) stack[0].separatorBefore = true;
-        items.push(...stack);
+        const items: MenuItemDescriptor[] = [
+            ...stack,
+            {
+                id: 'values',
+                label: 'Indicator values',
+                checked: this.rowValuesShown(row),
+                separatorBefore: stack.length > 0,
+            },
+        ];
         if (!this.rowMenu) {
             this.rowMenu = new Menu({
                 host: this.container,
