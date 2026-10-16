@@ -24,6 +24,13 @@ All notable changes to Vela, newest first.
   `pane:changed` fires when a pane's size changes, including when the user lets go of a pane
   separator, and when a new indicator creates its pane, so a host can save the layout and keep
   its own pane controls in step without polling.
+- **Bring an overlay in front of the candles from its legend.** New indicators start behind the
+  candles, so a line or a candle overlay on the price chart could be hidden under them. Its
+  legend row's **Move to** menu, and its right-click menu, now step it one layer at a time:
+  **Bring in front of price** or **Bring in front of** the indicator directly in front of it, and
+  **Send behind price** or **Send behind** the indicator directly behind it. Every other layer
+  keeps its place, and the order is saved with the chart. The legend now lists each pane's
+  indicators in their drawing order, front-most on top, the same order as the object tree.
 - **Clicks and the crosshair name the pane.** `onClick` now reports the pane that was clicked
   and the value under the click on that pane's scale, alongside the bar time, and
   `onCrosshairMove` reports the pane under the cursor. Both carry the pane's `paneId`, the same

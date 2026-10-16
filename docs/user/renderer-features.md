@@ -44,7 +44,7 @@ Available on every renderer:
 | `priceStyle` | `'candles' \| 'bars' \| 'line' \| 'area' \| 'baseline' \| 'heikinashi'`, or a registered chart-type id | `'candles'` | How the base price series is drawn. `'heikinashi'` draws Heikin Ashi candles, and indicators compute on the same smoothed values the chart shows. For hollow candles, see [Hollow candles](#hollow-candles). |
 | `priceBaseline` | number \| `null` | `null` | Reference price for `priceStyle: 'baseline'`. `null` derives it from the config's `baseline.baselineLevel` (a percent of the visible pane range). |
 | `baselinePrice` | number (read-only) | — | The RESOLVED baseline reference price the paint splits on: `priceBaseline` when set, else the level% of the price pane's current range. For host chrome that colors by baseline position (e.g. a status line's value ink). Writes are ignored. |
-| `candleZOrder` | number | `0` | Draw-order key of the price candles relative to overlay indicators. Indicators default to z ≥ 1, so candles sit behind all overlays by default. |
+| `candleZOrder` | number | `0` | Draw-order key of the price candles relative to overlay indicators. A new indicator mounts at the bottom of the stack, so the candles sit in front of every overlay until it is restacked: from its legend row (the **Move to** menu or a right-click → **Bring in front of price**), the object tree, or `seriesOrder`. |
 | `seriesOrder` | `{ id, to: 'front' \| 'back' }` or `{ id, z }` | — | Reorder one indicator's series layer — move it to front/back, or set an explicit z key. |
 | `highlights` | `HighlightArea[]` | `[]` | Shaded vertical time bands, drawn behind grid + data: `{ from, to, color }` with `from` inclusive and `to` exclusive, in epoch-ms. Use them for session highlighting (weekends, pre/regular/post) or to mark a bar or range the user picked — see [Letting the user pick a bar](./api-reference.md#letting-the-user-pick-a-bar-or-a-range). Malformed entries are dropped; bands are sorted by start time. |
 | `sessionZones` | `{ pre, post, extended }` \| `null` | `null` | Session time bands (`[start, end)` epoch-ms pairs per phase), shaded behind grid + data with the config's `sessions.premarketColor` / `sessions.postmarketColor` / `sessions.extendedColor`. Markets with a same-day pre/post split populate `pre`/`post`; markets whose extended session wraps midnight (an evening open rolling into the next day) populate the single `extended` phase instead. A host derives them from its market calendar (the widget does this automatically on markets with sessions); `null` means the market has no session structure. |
@@ -136,6 +136,18 @@ follows a synced crosshair's veil too.
 > Host code drives the same operations through
 > [`chart.panes`](./api-reference.md#chartpanes--the-pane-control-surface), so a custom pane
 > toolbar stays in step with the built-in buttons.
+
+> **Stacking from the legend.** An overlay indicator's **Move to** menu, and its legend row's
+> right-click menu, step it through the price pane's draw order one layer at a time: **Bring in
+> front of price** or **Bring in front of** *the indicator directly in front of it*, and **Send
+> behind price** or **Send behind** *the indicator directly behind it*. Only the steps that have
+> a layer to pass show. One step moves it just past that layer and leaves every other layer where
+> it was. Each pane's legend lists its indicators in that order, front-most on top, like the
+> object tree, and the steps walk the same order, so the three always agree. The new
+> order is part of the renderer config, so it is saved with the chart and reported through
+> `chart.renderer.onConfigChanged`. Volume and the volume profile take part in the order like any
+> other overlay, but paint on canvases of their own over the candles and indicators wherever they
+> sit in it.
 
 > **The drawing toolbar** is also in-chart UI, but it lives on its own facade — `chart.drawings`,
 > not `chart.renderer` — and is **shown by default**. It adds its own keyboard shortcuts
