@@ -29,7 +29,8 @@ All notable changes to Vela, newest first.
   legend row's **Move to** menu, and its right-click menu, now step it one layer at a time:
   **Bring in front of price** or **Bring in front of** the indicator directly in front of it, and
   **Send behind price** or **Send behind** the indicator directly behind it. Every other layer
-  keeps its place, and the order is saved with the chart.
+  keeps its place, and the order is saved with the chart. The legend now lists each pane's
+  indicators in their drawing order, front-most on top, the same order as the object tree.
 - **Clicks and the crosshair name the pane.** `onClick` now reports the pane that was clicked
   and the value under the click on that pane's scale, alongside the bar time, and
   `onCrosshairMove` reports the pane under the cursor. Both carry the pane's `paneId`, the same

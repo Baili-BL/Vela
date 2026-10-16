@@ -142,7 +142,8 @@ follows a synced crosshair's veil too.
 > front of price** or **Bring in front of** *the indicator directly in front of it*, and **Send
 > behind price** or **Send behind** *the indicator directly behind it*. Only the steps that have
 > a layer to pass show. One step moves it just past that layer and leaves every other layer where
-> it was. The steps follow the same order the object tree lists, so the two always agree. The new
+> it was. Each pane's legend lists its indicators in that order, front-most on top, like the
+> object tree, and the steps walk the same order, so the three always agree. The new
 > order is part of the renderer config, so it is saved with the chart and reported through
 > `chart.renderer.onConfigChanged`. Volume and the volume profile take part in the order like any
 > other overlay, but paint on canvases of their own over the candles and indicators wherever they

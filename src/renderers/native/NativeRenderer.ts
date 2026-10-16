@@ -971,6 +971,7 @@ export class NativeRenderer implements IChartRenderer {
         // stack survives the (async) indicator restore that follows a config restore.
         this.scene.candleZ = next.stacking.candles;
         for (const [id, z] of Object.entries(next.stacking.series)) this.scene.setIndicatorZ(id, z);
+        this.syncLegendOrder();
         // per-price-style cosmetics (independent of the candle palette)
         s.bars = { upColor: next.bars.upColor, downColor: next.bars.downColor };
         s.line = { color: next.line.color, width: next.line.width };
@@ -1033,6 +1034,7 @@ export class NativeRenderer implements IChartRenderer {
         if (typeof v.z === 'number') this.scene.setIndicatorZ(v.id, v.z);
         else if (v.to === 'front') this.scene.bringIndicatorToFront(v.id);
         else if (v.to === 'back') this.scene.sendIndicatorToBack(v.id);
+        this.syncLegendOrder();
     }
 
     /** Toggle the in-chart settings gear + dialog (the `settings` feature). The gear
@@ -2081,6 +2083,7 @@ export class NativeRenderer implements IChartRenderer {
         model.ownScale = opts?.ownScale === true;
         if (!model.ownScale) this.scene.dropIndicatorScale(handle.id);
         this.inputsUI.setPane(handle.id, paneId);
+        this.syncLegendOrder();
         this.refreshAnchorOffset(model);
         this.refreshAxisWidth();
         this.layoutPanes();
@@ -2235,6 +2238,7 @@ export class NativeRenderer implements IChartRenderer {
             this.vpvrHidden = false;
         }
         if (model.ownScale) this.refreshAxisWidth();
+        this.syncLegendOrder();
         this.paneControls?.refresh();
         this.scheduler.invalidate(InvalidateLevel.Full);
         return { id: model.id };
@@ -3397,6 +3401,7 @@ export class NativeRenderer implements IChartRenderer {
         // every path that can move them (a z write, a restored config, a mount/remove, a
         // pane move) is covered without its own call site. No-op when unchanged.
         this.syncLayerCanvasOrder();
+        this.syncLegendOrder(); // catches any path that moved a key without its own call
         this.stampScaleInvert(); // flip axes (if inverted) before any layer reads pane.scale
         this.backend.modelAlpha = this.modelAlpha;
         this.backend.candleBodyAlpha = this.candleBodyAlpha;
@@ -3819,6 +3824,11 @@ export class NativeRenderer implements IChartRenderer {
         return priceStack(painted, this.scene.candleZ);
     }
 
+    /** List the legend rows the way the indicators stack, front-most first (no-op when unchanged). */
+    private syncLegendOrder(): void {
+        this.inputsUI?.orderRows(this.scene.indicatorZOrder().map((e) => e.id));
+    }
+
     /** Apply a legend restacking step: shared keys are spread apart first (the order stays),
      *  so the step lands exactly one layer over. No-op when there is nothing to step over. */
     private restackOverlay(id: string, step: (stack: StackEntry[], id: string) => number | null): void {
@@ -3826,6 +3836,7 @@ export class NativeRenderer implements IChartRenderer {
         const z = step(this.overlayStack(), id);
         if (z === null) return;
         this.scene.setIndicatorZ(id, z);
+        this.syncLegendOrder();
         this.scheduler.invalidate(InvalidateLevel.Full);
         // The stacking is part of the config: host chrome mirroring it (an object tree) follows.
         for (const cb of this.configChangedCbs) cb();

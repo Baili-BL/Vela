@@ -181,8 +181,10 @@ export class InputsUI {
     private mobileLayout = false;
     /** Pane move/merge hook — when set, rows get a "Move to" menu + become drag-to-pane sources. */
     private moveApi: LegendMoveApi | null = null;
-    /** Overlay restacking hook — when set, a row's context menu offers to step it forward. */
+    /** Overlay restacking hook — when set, a row's menus offer to step it forward or back. */
     private stackApi: LegendStackApi | null = null;
+    /** What {@link orderRows} last ordered the rows by (skips unchanged frames). */
+    private rowOrderKey = '';
     /** Host-contributed legend actions, resolved PER ROW at render time (see setLegendActions). */
     private legendActions: ((indicatorId: string) => LegendActionView[]) | null = null;
     /** Host-contributed callout bubbles, resolved PER ROW at render time (see setLegendCallouts). */
@@ -618,6 +620,33 @@ export class InputsUI {
         else if (itemId === STACK_LOWER) this.stackApi?.lower(rowId);
         else return false;
         return true;
+    }
+
+    /**
+     * List each pane's rows front-most first, the way the indicators stack (the object
+     * tree's order). `backToFront` is the paint order; rows it doesn't name keep their
+     * place after the others. Cheap to call every frame: no-op while nothing changed.
+     */
+    orderRows(backToFront: readonly string[]): void {
+        const key = `${backToFront.join(',')}|${[...this.rows.values()].map((r) => `${r.id}@${r.paneId}`).join(',')}`;
+        if (key === this.rowOrderKey) return;
+        this.rowOrderKey = key;
+        const rank = new Map(backToFront.map((id, i) => [id, i]));
+        for (const lg of this.legends.values()) {
+            const els = [...this.rows.values()].filter((r) => r.el.parentElement === lg).map((r) => r.el);
+            const dom = [...lg.children];
+            const ofEl = new Map([...this.rows.values()].map((r) => [r.el, r.id]));
+            const at = (el: HTMLElement): number => rank.get(ofEl.get(el)!) ?? -1;
+            els.sort((a, b) => {
+                const ra = at(a);
+                const rb = at(b);
+                if (ra >= 0 && rb >= 0) return rb - ra;
+                if (ra >= 0 || rb >= 0) return ra >= 0 ? -1 : 1;
+                return dom.indexOf(a) - dom.indexOf(b);
+            });
+            const anchor = this.foldToggle?.parentElement === lg ? this.foldToggle : null;
+            for (const el of els) lg.insertBefore(el, anchor);
+        }
     }
 
     /** Move a legend row to another pane (indicator merged/moved), tidying an emptied container. */
