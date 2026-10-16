@@ -45,6 +45,16 @@ export interface LegendMoveApi {
     move(id: string, target: MoveTarget): void;
 }
 
+/** Host hook that lets the legend restack an overlay indicator among the price pane's layers. */
+export interface LegendStackApi {
+    /** What paints directly in front of the indicator: the candles (`'price'`), another
+     *  indicator (`{ indicator: id }`), or nothing to step over (`null` — the top of the
+     *  stack, or an indicator that doesn't stack with the candles). */
+    above(id: string): 'price' | { indicator: string } | null;
+    /** Move the indicator directly in front of what {@link above} reports. */
+    raise(id: string): void;
+}
+
 /** One plot's current value as shown beside the legend title (pre-formatted, plot-colored). */
 export interface LegendPlotValue {
     value: string;
@@ -161,6 +171,8 @@ export class InputsUI {
     private mobileLayout = false;
     /** Pane move/merge hook — when set, rows get a "Move to" menu + become drag-to-pane sources. */
     private moveApi: LegendMoveApi | null = null;
+    /** Overlay restacking hook — when set, a row's context menu offers to step it forward. */
+    private stackApi: LegendStackApi | null = null;
     /** Host-contributed legend actions, resolved PER ROW at render time (see setLegendActions). */
     private legendActions: ((indicatorId: string) => LegendActionView[]) | null = null;
     /** Host-contributed callout bubbles, resolved PER ROW at render time (see setLegendCallouts). */
@@ -326,6 +338,11 @@ export class InputsUI {
     /** Enable legend-driven move/merge (a "Move to" menu + drag-to-pane). Null disables it. */
     setMoveApi(api: LegendMoveApi | null): void {
         this.moveApi = api;
+    }
+
+    /** Enable the context menu's "Bring in front of …" entry for overlay indicators. Null disables it. */
+    setStackApi(api: LegendStackApi | null): void {
+        this.stackApi = api;
     }
 
     /**
@@ -516,7 +533,8 @@ export class InputsUI {
 
     // ── legend row context menu (right-click) ───────────────────────────────
 
-    /** Open the row's action menu at the pointer. One entry today: the values toggle. */
+    /** Open the row's action menu at the pointer: the values toggle, and for an overlay
+     *  indicator with something painting directly in front of it, a step forward. */
     private openRowMenu(id: string, x: number, y: number): void {
         this.closeRowMenu();
         this.closeMoveMenu();
@@ -528,6 +546,8 @@ export class InputsUI {
             label: 'Indicator values',
             checked: this.rowValuesShown(row),
         }];
+        const raise = this.raiseLabel(id);
+        if (raise) items.push({ id: 'raise', label: raise, separatorBefore: true });
         if (!this.rowMenu) {
             this.rowMenu = new Menu({
                 host: this.container,
@@ -536,8 +556,14 @@ export class InputsUI {
                 // Right-click action menu — checked state reads as a leading ✓ (see the kit Menu).
                 checkmarks: true,
                 onSelect: (itemId) => {
-                    if (itemId !== 'values' || !this.rowMenuId) return;
-                    const target = this.rows.get(this.rowMenuId);
+                    const rowId = this.rowMenuId;
+                    if (!rowId) return;
+                    if (itemId === 'raise') {
+                        this.stackApi?.raise(rowId);
+                        return;
+                    }
+                    if (itemId !== 'values') return;
+                    const target = this.rows.get(rowId);
                     if (!target) return;
                     target.showValues = !this.rowValuesShown(target);
                     this.renderRowValues(target);
@@ -551,6 +577,15 @@ export class InputsUI {
 
     private closeRowMenu(): void {
         this.rowMenu?.close();
+    }
+
+    /** The context menu's step-forward label for a row, or null when there is nothing to step over. */
+    private raiseLabel(id: string): string | null {
+        const above = this.stackApi?.above(id) ?? null;
+        if (above === null) return null;
+        if (above === 'price') return 'Bring in front of price';
+        const title = this.rows.get(above.indicator)?.title;
+        return title ? `Bring in front of ${title}` : 'Bring in front of the indicator above';
     }
 
     /** Move a legend row to another pane (indicator merged/moved), tidying an emptied container. */
