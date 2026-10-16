@@ -695,7 +695,7 @@ export class Canvas2dBackend implements IRenderBackend {
         const tickW = Math.max(1, Math.round(spacing * 0.35));
         for (let i = i0; i <= i1; i += 1) {
             const b = s.bars[i - off];
-            if (!b) continue;
+            if (!b || !Number.isFinite(b.open + b.high + b.low + b.close)) continue;
             const bc: CandleBarColor | null | undefined = s.barColors?.[i - off];
             const body = bc?.color ?? (b.close >= b.open ? up : down);
             const x = Math.round(coords.logicalToX(i)) + 0.5;

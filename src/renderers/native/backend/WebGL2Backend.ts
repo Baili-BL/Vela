@@ -1095,7 +1095,7 @@ export class WebGL2Backend implements IRenderBackend {
         const tickW = Math.max(1, Math.round(spacing * 0.35));
         for (let i = i0; i <= i1; i += 1) {
             const bar = s.bars[i - off];
-            if (!bar) continue;
+            if (!bar || !Number.isFinite(bar.open + bar.high + bar.low + bar.close)) continue;
             const bc: CandleBarColor | null | undefined = s.barColors?.[i - off];
             const body = parseColor(bc?.color ?? (bar.close >= bar.open ? up : down));
             const x = Math.round(coords.logicalToX(i));
