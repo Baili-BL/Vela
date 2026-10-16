@@ -30,6 +30,8 @@ export interface IndicatorRecord {
      * `stale` marks an instance re-created for a NEW market while the indicator was hidden —
      * showing it must START the fresh instance instead of resuming the old market's compute.
      * `revokeContext` kills the running instance's context once it is stopped.
+     * `heldForHistory` marks a `waitsForHistory` instance whose start is deferred until the
+     * chart's history completes (its legend row is a loading placeholder meanwhile).
      */
     native?: {
         type: string;
@@ -37,6 +39,7 @@ export interface IndicatorRecord {
         descriptor: NativeIndicatorDescriptor;
         stale?: boolean;
         started?: boolean;
+        heldForHistory?: boolean;
         revokeContext?: () => void;
     };
     /** Routing/inputs options from addIndicator (used to re-route on a fresh first model). */

@@ -36,9 +36,27 @@ All notable changes to Vela, newest first.
   `onCrosshairMove` reports the pane under the cursor. Both carry the pane's `paneId`, the same
   id `chart.panes` uses, and right-click menu actions get it on `ctx.pointer` too, so a click
   on one of several indicator panes can be told apart.
+- **Plugin indicators can wait for the full history.** A native indicator registered with
+  `waitsForHistory: true` does not compute while the chart's history is still loading: its
+  legend row shows a loading state, and it computes once, over every candle, when the history
+  is complete. A history extended later holds its previous output in place until the new
+  candles have all arrived. Without the flag, an indicator keeps computing as each part of the
+  history lands.
 
 ### Fixed
 
+- **Built-in indicators stay on their candles while history loads.** When older candles
+  arrived after the chart first painted, as they do while a symbol's history is still being
+  completed, a built-in study such as an EMA could slide back in time, end well before the last
+  candle, or vanish from view entirely, until the next price update or the end of the load.
+  The built-in studies now wait until the history has finished loading, showing a loading state
+  in their legend meanwhile, then compute once over every candle, the way script indicators do.
+  Volume still paints from the first candles. Plugin indicators no longer slide either, and
+  shortening the history from the chart settings leaves every indicator on its candles.
+- **Studies follow a switch to Heikin Ashi at once.** After switching the chart style to Heikin
+  Ashi, the built-in studies kept showing values computed from the regular candles until the
+  next price update. They now recalculate over the Heikin Ashi candles straight away, and over
+  the regular candles again when you switch back.
 - **Resized panes keep their size when indicators are added.** Dragging a pane separator, then
   adding an indicator that draws on an existing pane (a moving average on the price chart, or
   one merged into another indicator's pane), snapped the panes back to their default heights.

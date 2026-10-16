@@ -181,6 +181,24 @@ it runs, `ctx.live` is `false` and `ctx.bars()` ends at the replay cursor, so a 
 opens its own live feed when `ctx.live` is set never streams the present into a past chart.
 Each revealed bar reaches it through `onBars()`.
 
+**History that arrives in stages.** A chart's history can land in parts: a deep load streams
+older chunks in behind the first candles, a source still completing a cold symbol answers
+with growing snapshots, and a deeper depth picked from the settings is fetched in the
+background. An emitted output is index-aligned to `ctx.bars()` as it stands at the `emit`
+call, and the chart keeps it on those bars when older history lands in front of them (or the
+oldest bars are trimmed), so a plot never slides while it waits for its next compute. By
+default an instance starts on the first candles and `onBars()` fires for every part as it
+lands. Set **`waitsForHistory: true`** on the descriptor when the values depend on every
+earlier bar (a moving average's seed, an oscillator's smoothing): the instance then starts
+only once the history is complete — its legend row shows a loading state meanwhile, and
+`ready` / `indicator:added` wait for its first output — and a history extended later holds
+`onBars()` (live ticks included) until the extension completes, the previous output staying
+on its bars. The built-in classic studies opt in; volume and VPVR, which paint straight from
+the candles, do not.
+
+`onBars()` also fires when a price style re-derives the candles (Heikin Ashi): `ctx.bars()`
+returns the candles the chart shows, so a compute over them follows the style.
+
 A native that is really **host-owned chrome** — trade markers from a journal, event flags,
 anything whose on/off switch lives in the host's own UI — can opt out of in-chart chrome with
 `legend: false` on the descriptor. Its output still computes and paints, but the chart mounts
