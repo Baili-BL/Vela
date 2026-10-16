@@ -142,6 +142,8 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
     private barTransform: BarTransform | null = null;
     // ── chart-type data engines (SDK): one lazily-created engine per style id ──
     private readonly typeEngines = new Map<string, SeriesDataEngine>();
+    /** Engines suspended by the chart — their host pushes are dropped until they resume. */
+    private readonly suspendedEngines = new WeakSet<SeriesDataEngine>();
     /** Last-seen chart-type settings per type id (dialog edits + persisted restores) —
      *  replayed into a data engine whenever one is (re)created. */
     private readonly typeSettings = new Map<string, Record<string, unknown>>();
@@ -806,9 +808,17 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
                 // bucket open-time, so on a same-timeframe switch the old market's cells would
                 // land exactly on the new market's first candles.
                 if (this.activeEngineStyle) {
-                    this.typeEngines.get(this.activeEngineStyle)?.suspend();
+                    this.suspendTypeEngine(this.typeEngines.get(this.activeEngineStyle));
                     this.renderer.setNativeData?.(this.activeEngineStyle, undefined);
                     this.renderer.setNativeData?.(`${this.activeEngineStyle}-pending`, []);
+                }
+                // Native indicators ride the old market too, and a layer payload is just as
+                // time-keyed: with no bars on the axis, every entry maps to the same slot. Release
+                // them now (the post-load restart builds fresh instances) and blank their channels.
+                for (const record of this.registry.all()) {
+                    if (!record.native?.started) continue;
+                    this.stopNativeInstance(record.native);
+                    this.renderer.setNativeData?.(this.nativeChannel(record), undefined);
                 }
             }
 
@@ -880,9 +890,8 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
     private restartNativeIndicators(): void {
         for (const record of this.registry.all()) {
             if (!record.native) continue;
-            if (record.native.started) record.native.instance.stop();
+            this.stopNativeInstance(record.native);
             record.native.instance = record.native.descriptor.create();
-            record.native.started = false;
             record.pendingStructural = true; // the next emitted model remounts over the old visuals
             if (record.hidden) {
                 record.native.stale = true;
@@ -899,6 +908,23 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         for (const engine of this.typeEngines.values()) engine.stop();
         this.typeEngines.clear();
         if (this.activeEngineStyle) void this.startChartTypeEngine(this.activeEngineStyle);
+    }
+
+    /** Suspend a chart-type engine. Its host drops every push until the engine resumes:
+     *  work it left in flight lands in its own state, never on the scene. */
+    private suspendTypeEngine(engine: SeriesDataEngine | undefined): void {
+        if (!engine) return;
+        engine.suspend();
+        this.suspendedEngines.add(engine);
+    }
+
+    /** Stop a running native instance, then revoke its context: the teardown inside `stop()`
+     *  still reaches its layer, but work it left in flight (a fetch resolving later) does not. */
+    private stopNativeInstance(native: NonNullable<IndicatorRecord['native']>): void {
+        if (native.started) native.instance.stop();
+        native.started = false;
+        native.revokeContext?.();
+        native.revokeContext = undefined;
     }
 
     /**
@@ -1503,7 +1529,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         const def = chartType(id);
         const want = def?.dataEngine ? id : null;
         if (want === this.activeEngineStyle) return;
-        if (this.activeEngineStyle) this.typeEngines.get(this.activeEngineStyle)?.suspend();
+        if (this.activeEngineStyle) this.suspendTypeEngine(this.typeEngines.get(this.activeEngineStyle));
         this.activeEngineStyle = want;
         if (want) void this.startChartTypeEngine(want);
     }
@@ -1515,6 +1541,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         if (this.activeEngineStyle !== id) return; // the style left again while loading
         const existing = this.typeEngines.get(id);
         if (existing) {
+            this.suspendedEngines.delete(existing); // before resume(): its re-push must land
             existing.resume();
             return;
         }
@@ -1527,6 +1554,9 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         // the user's values — never on schema defaults they edited away.
         const stored = this.typeSettings.get(id);
         if (stored) engine.onSettings?.(stored);
+        // Only the chart's current, unsuspended engine reaches the scene — an engine stopped
+        // by a rebuild (market switch, replay) or suspended mid-fetch still holds this host.
+        const reachesScene = (): boolean => this.typeEngines.get(id) === engine && !this.suspendedEngines.has(engine);
         engine.start({
             symbol: this.config.market.symbol ?? 'TEST',
             timeframe: this.config.market.timeframe ?? '60',
@@ -1534,8 +1564,12 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
             session: this.config.market.session,
             bars: () => this.bars,
             data: this.dataControl,
-            pushData: (data) => this.renderer.setNativeData?.(id, data),
-            pushPending: (ranges) => this.renderer.setNativeData?.(`${id}-pending`, ranges),
+            pushData: (data) => {
+                if (reachesScene()) this.renderer.setNativeData?.(id, data);
+            },
+            pushPending: (ranges) => {
+                if (reachesScene()) this.renderer.setNativeData?.(`${id}-pending`, ranges);
+            },
         });
     }
 
@@ -2031,7 +2065,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         record?.session?.stop();
         // A native added hidden and never started (a restored ledger entry) has nothing
         // to tear down — and its `stop()` may not expect to run without a context.
-        if (record?.native?.started) record.native.instance.stop();
+        if (record?.native) this.stopNativeInstance(record.native);
         this.handles.delete(id);
         if (record?.renderHandle) this.renderer.removeIndicator(record.renderHandle);
         const paneId = record?.model?.paneId;
@@ -2184,7 +2218,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         for (const record of this.registry.all()) {
             this.settleCode(record, { ok: false, error: new Error('[vela] updateCode — the chart was destroyed.') });
             record.session?.stop();
-            if (record.native?.started) record.native.instance.stop();
+            if (record.native) this.stopNativeInstance(record.native);
         }
         for (const engine of this.typeEngines.values()) engine.stop(); // chart-type data engines (SDK)
         this.typeEngines.clear();
@@ -2350,6 +2384,13 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
             const record = this.registry.get(id);
             if (!record?.native || record.hidden) return; // removed/hidden during the await
             const channel = this.nativeChannel(record);
+            const native = record.native;
+            // One context per start: once the instance is stopped, nothing it left in flight
+            // may reach the scene (a stopped market's payload, or a removed indicator's).
+            let alive = true;
+            native.revokeContext = () => {
+                alive = false;
+            };
             const ctx: NativeIndicatorContext = {
                 id,
                 symbol: this.config.market.symbol ?? 'TEST',
@@ -2358,10 +2399,14 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
                 session: this.config.market.session,
                 bars: () => this.bars,
                 data: this.dataControl,
-                emit: (out) => this.applyModel(id, this.buildNativeModel(record, out)),
-                pushData: (data) => this.renderer.setNativeData?.(channel, data),
+                emit: (out) => {
+                    if (alive) this.applyModel(id, this.buildNativeModel(record, out));
+                },
+                pushData: (data) => {
+                    if (alive) this.renderer.setNativeData?.(channel, data);
+                },
                 setStatus: (status) => {
-                    if (record.renderHandle && !record.hidden) this.renderer.setIndicatorStatus?.(record.renderHandle, status);
+                    if (alive && record.renderHandle && !record.hidden) this.renderer.setIndicatorStatus?.(record.renderHandle, status);
                 },
             };
             record.native.instance.start(ctx, record.inputValues);
