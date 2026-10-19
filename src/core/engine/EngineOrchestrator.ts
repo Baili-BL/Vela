@@ -2972,13 +2972,16 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         return overlay ? 'price' : `pane-${id}`;
     }
 
-    /** Each named value series' last plotted value — the model is the one source every
-     *  engine fills, so this works without an execution context. */
-    private static plotsAtLastBar(model: IndicatorModel): Record<string, number | null> {
+    /** Each named value series' value on the chart's last bar — the model is the one source
+     *  every engine fills, so this works without an execution context. Points past the last
+     *  bar (a series shifted forward) are skipped by time. */
+    private static plotsAtLastBar(model: IndicatorModel, lastBarTime: number | undefined): Record<string, number | null> {
         const out: Record<string, number | null> = {};
         for (const spec of model.series) {
             if (!isLineLikeSeries(spec)) continue;
-            out[spec.title] = spec.points[spec.points.length - 1]?.value ?? null;
+            let i = spec.points.length - 1;
+            if (lastBarTime !== undefined) while (i >= 0 && spec.points[i]!.time > lastBarTime) i -= 1;
+            out[spec.title] = spec.points[i]?.value ?? null;
         }
         return out;
     }
@@ -3060,7 +3063,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
             // whatever produced this run.
             forming: this.config.live && this.bars.length > 0,
             complete: this.historyState !== 'backfill',
-            plots: EngineOrchestrator.plotsAtLastBar(model),
+            plots: EngineOrchestrator.plotsAtLastBar(model, lastBar?.time),
             vars: snapshot?.variables ?? {},
             ...(snapshot?.strategy ? { strategy: snapshot.strategy } : {}),
             warnings: snapshot?.warnings ?? [],

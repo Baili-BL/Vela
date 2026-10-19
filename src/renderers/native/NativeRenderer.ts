@@ -3631,6 +3631,8 @@ export class NativeRenderer implements IChartRenderer {
         const i0 = Math.max(0, Math.floor(vr.from));
         const i1 = Math.min(n - 1, Math.ceil(vr.to));
         if (i1 < i0) return;
+        // Series points past the last bar paint in the right whitespace, so they scale there too.
+        const s1 = Math.max(i1, Math.ceil(vr.to));
         // Percent mode: the reference is the first visible bar's close (the common idiom).
         this.scene.percentBaseline = this.bars[i0]?.close ?? 0;
         const panes = this.scene.orderedPanes();
@@ -3656,7 +3658,7 @@ export class NativeRenderer implements IChartRenderer {
             // force_overlay series render on the price pane whatever pane their indicator
             // owns — fold their visible range in here (their own pane excludes them).
             if (pane === pricePane) {
-                const or = overlaySeriesRange(this.scene.indicators.values(), i0, i1, (id) => this.scene.offsetOf(id));
+                const or = overlaySeriesRange(this.scene.indicators.values(), i0, s1, (id) => this.scene.offsetOf(id));
                 if (or) dr = dr ? { min: Math.min(dr.min, or.min), max: Math.max(dr.max, or.max) } : or;
             }
             // Hidden candles drop out of the price pane's autoscale, so overlay indicators fill
@@ -3667,7 +3669,7 @@ export class NativeRenderer implements IChartRenderer {
                 && (!this.scene.candlesHidden || this.priceLayersAnchoredToBars(masterModels) || !this.paneHasMeasurableContent(masterModels, dr));
             // Each pane logs (or not) on its OWN flag — the price pane from the scene setting,
             // study panes from their own — so a study going log never touches the price pane.
-            pane.scaleTarget = computePaneScale(masterModels, this.bars, includeCandles, i0, i1, dr, paneLogScale(this.scene, pane), (id) => this.scene.offsetOf(id), margins);
+            pane.scaleTarget = computePaneScale(masterModels, this.bars, includeCandles, i0, s1, dr, paneLogScale(this.scene, pane), (id) => this.scene.offsetOf(id), margins);
             // Percent baseline for THIS pane (the first visible value it measures change from):
             // the first visible bar close on the price pane, else the master series' first
             // visible value. 0 ⇒ no reference yet, so the axis falls back to absolute.
@@ -3732,7 +3734,7 @@ export class NativeRenderer implements IChartRenderer {
                     continue;
                 }
                 const mdr = this.chrome.paneDrawingsRange([model], this.scene, false, vr);
-                sl.scaleTarget = computePaneScale([model], this.bars, false, i0, i1, mdr, false, (id) => this.scene.offsetOf(id), margins);
+                sl.scaleTarget = computePaneScale([model], this.bars, false, i0, s1, mdr, false, (id) => this.scene.offsetOf(id), margins);
                 if (!animating || !sl.initialized) {
                     sl.scale = { ...sl.scaleTarget };
                     sl.initialized = true;

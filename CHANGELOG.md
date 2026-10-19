@@ -42,6 +42,11 @@ All notable changes to Vela, newest first.
   is complete. A history extended later holds its previous output in place until the new
   candles have all arrived. Without the flag, an indicator keeps computing as each part of the
   history lands.
+- **Indicator plots can continue past the last candle.** A plot shifted forward, such as a
+  Pine Script `plot()` with a positive `offset`, now keeps drawing into the empty space to
+  the right of the latest candle instead of stopping at it. Fills between such plots follow
+  them, and the price scale keeps their values in view. Engines get this by emitting points
+  beyond the last bar, one per future bar; older engines are unaffected.
 
 ### Fixed
 
